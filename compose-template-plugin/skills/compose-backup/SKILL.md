@@ -101,6 +101,9 @@ CRON_SCHEDULE="0 2 * * *"
 
 # Backup everything automatically
 AUTO_BACKUP_ALL=true
+
+# Check repository with cache to reduce read operations (optional)
+CHECK_WITH_CACHE=false
 ```
 
 ### For Backblaze B2
