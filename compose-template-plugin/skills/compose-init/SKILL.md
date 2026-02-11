@@ -1,3 +1,8 @@
+---
+name: compose-init
+description: Initialize a new application from the compose-template with Docker Compose, Terraform infrastructure, Infisical secrets, and automated backups
+---
+
 # Initialize Compose Template App
 
 Initialize a new application from the compose-template. This skill helps set up the basic project structure for a new Docker Compose application with built-in backups, secrets management, and public access.

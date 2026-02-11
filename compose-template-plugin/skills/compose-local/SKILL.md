@@ -1,3 +1,8 @@
+---
+name: compose-local
+description: Set up local development environment for compose-template with Infisical CLI, Terraform, and environment configuration for infrastructure or application work
+---
+
 # Local Development Setup
 
 Set up a local development environment for working with a compose-template application. This skill helps configure the necessary tools and environment for local development, testing, and deployment.

@@ -1,3 +1,8 @@
+---
+name: compose-deploy
+description: Deploy Docker Compose applications with Traefik routing, Infisical secret injection, and Ansible automation for compose-template projects
+---
+
 # Deploy Compose Application
 
 Deploy and manage the Docker Compose application using the compose-template's deployment system. This skill covers application deployment, updates, and management.

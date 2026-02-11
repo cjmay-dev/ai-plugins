@@ -1,3 +1,8 @@
+---
+name: compose-infra
+description: Deploy and manage Terraform infrastructure for compose-template including Ubuntu server, B2 storage, Cloudflare Tunnel, DNS, and Infisical secrets
+---
+
 # Deploy Infrastructure with Terraform
 
 Deploy and manage the infrastructure for a compose-template application using Terraform. This skill helps with infrastructure deployment, modification, and troubleshooting.

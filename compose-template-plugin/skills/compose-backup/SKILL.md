@@ -1,3 +1,8 @@
+---
+name: compose-backup
+description: Configure automated backups with stack-back using restic for volumes and databases, with retention policies and restore procedures
+---
+
 # Configure Backups with stack-back
 
 Configure and manage automated backups using stack-back. This skill helps set up backup schedules, configure backup targets, and restore from backups.
