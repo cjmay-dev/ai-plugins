@@ -1,0 +1,25 @@
+{
+  "marketplaces": [
+    {
+      "name": "cjmay-dev",
+      "description": "Claude Code plugins by cjmay-dev",
+      "plugins": [
+        {
+          "name": "compose-template",
+          "source": "./compose-template-plugin",
+          "version": "1.0.0",
+          "description": "Claude Code plugin for developing applications using the cjmay-dev compose-template for Docker Compose deployments",
+          "author": {
+            "name": "cjmay-dev",
+            "url": "https://github.com/cjmay-dev"
+          },
+          "homepage": "https://github.com/cjmay-dev/compose-template",
+          "repository": "https://github.com/cjmay-dev/ai-plugins",
+          "license": "MIT",
+          "keywords": ["docker", "compose", "terraform", "infisical", "cloudflare", "deployment", "devops"],
+          "readme": "compose-template-plugin/README.md"
+        }
+      ]
+    }
+  ]
+}
