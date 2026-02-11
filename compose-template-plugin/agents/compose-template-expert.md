@@ -274,15 +274,16 @@ databases:
 ### Backup Issues
 
 **Backups not running:**
-1. Check stack-back service: `systemctl status stack-back`
-2. Review logs: `journalctl -u stack-back`
-3. Verify B2 credentials
-4. Check disk space
+1. Check stack-back container: `docker-compose ps backup`
+2. Review logs: `docker-compose logs backup`
+3. Verify B2 credentials in stack-back.env
+4. Check disk space and cache volume
 
 **Restore fails:**
-1. Verify backup file exists and is valid
+1. Verify snapshot exists: `docker-compose exec backup restic snapshots`
 2. Check disk space for restore
 3. Ensure correct permissions
+4. Check repository is accessible
 4. Stop application before restore
 
 ## Best Practices

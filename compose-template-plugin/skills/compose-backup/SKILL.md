@@ -7,10 +7,11 @@ Configure and manage automated backups using stack-back. This skill helps set up
 This skill guides backup configuration and management:
 
 1. Understanding stack-back backup system
-2. Configuring backup schedules
-3. Customizing backup targets (volumes and databases)
-4. Restoring from backups
+2. Adding stack-back to your compose setup
+3. Configuring backup schedules and retention
+4. Customizing backup targets (volumes and databases)
 5. Monitoring backup status
+6. Restoring from backups
 
 ## Usage
 
@@ -22,250 +23,351 @@ Invoke this skill when:
 
 ## stack-back Overview
 
-stack-back is the backup solution integrated into compose-template:
+stack-back is an automated incremental backup solution using [restic](https://restic.net/) for docker-compose setups.
 
 **Features:**
-- Automatic volume backups
-- Automatic database backups (PostgreSQL, MySQL, MariaDB, MongoDB)
+- Automatic volume backups (docker volumes and bind mounts)
+- Automatic database backups (PostgreSQL, MySQL, MariaDB)
 - Scheduled backups via cron
-- Backup to Backblaze B2
+- Incremental backups with restic
 - Configurable retention policies
-- Simple restore process
+- Notifications via SMTP or Discord webhooks
+- Simple restore with restic commands
 
-**Default Behavior:**
-- Backs up ALL Docker volumes
-- Backs up ALL databases automatically
-- Uses default schedule (daily at 2 AM)
-- Uploads to B2 bucket created by Terraform
+**How It Works:**
+- Runs as a Docker container in your compose stack
+- Monitors Docker socket to detect volumes and databases
+- Uses restic for efficient incremental backups
+- Backs up to any restic-supported backend (B2, S3, local, etc.)
 
-## stack-back Configuration
+## Adding stack-back to Your Compose Setup
 
-### Configuration File Location
-```
-/opt/stack-back/config.yaml
-```
+### Basic Setup
 
-### Basic Configuration Structure
+Add the stack-back service to your `docker-compose.yaml`:
+
 ```yaml
-# Backup schedule (cron format)
-schedule: "0 2 * * *"  # Daily at 2 AM
+services:
+  backup:
+    image: ghcr.io/lawndoc/stack-back:latest
+    env_file:
+      - stack-back.env
+    environment:
+      - AUTO_BACKUP_ALL=true
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+      - backup_cache:/cache  # Persistent restic cache
 
-# Backup destinations
-destinations:
-  - type: b2
-    bucket: ${B2_BUCKET}
-    key_id: ${B2_KEY_ID}
-    app_key: ${B2_APP_KEY}
+  # Your application services
+  web:
+    image: nginx:alpine
+    volumes:
+      - web_data:/usr/share/nginx/html
 
-# Volume backups
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
 volumes:
-  - name: "*"  # All volumes
-    compress: true
-    
-# Database backups
-databases:
-  auto_discover: true  # Automatically find and backup databases
+  backup_cache:
+  web_data:
+  db_data:
+```
+
+### Configuration File
+
+Create a `stack-back.env` file in your project root:
+
+```bash
+# Required: Repository location
+RESTIC_REPOSITORY=s3:s3.us-east-1.amazonaws.com/my-backup-bucket
+# or for Backblaze B2:
+# RESTIC_REPOSITORY=b2:bucket-name:path
+
+# Required: Encryption password (don't lose this!)
+RESTIC_PASSWORD=your-secure-password-here
+
+# Retention policy (optional, defaults shown)
+RESTIC_KEEP_DAILY=7
+RESTIC_KEEP_WEEKLY=4
+RESTIC_KEEP_MONTHLY=12
+RESTIC_KEEP_YEARLY=3
+
+# Schedule (optional, default is daily at 2 AM)
+CRON_SCHEDULE="0 2 * * *"
+
+# Backup everything automatically
+AUTO_BACKUP_ALL=true
+```
+
+### For Backblaze B2
+
+```bash
+RESTIC_REPOSITORY=b2:my-backup-bucket:compose-app
+RESTIC_PASSWORD=your-restic-encryption-password
+B2_ACCOUNT_ID=your-b2-key-id
+B2_ACCOUNT_KEY=your-b2-application-key
+RESTIC_KEEP_DAILY=7
+RESTIC_KEEP_WEEKLY=4
+RESTIC_KEEP_MONTHLY=12
+CRON_SCHEDULE="0 2 * * *"
+AUTO_BACKUP_ALL=true
+```
+
+### For AWS S3
+
+```bash
+RESTIC_REPOSITORY=s3:s3.us-east-1.amazonaws.com/my-bucket/compose-app
+RESTIC_PASSWORD=your-restic-encryption-password
+AWS_ACCESS_KEY_ID=your-access-key
+AWS_SECRET_ACCESS_KEY=your-secret-key
+RESTIC_KEEP_DAILY=7
+CRON_SCHEDULE="0 2 * * *"
+AUTO_BACKUP_ALL=true
 ```
 
 ## Customizing Backup Configuration
 
-### Modify Backup Schedule
+### Backup Schedule
 
-To change when backups run:
+Change the cron schedule in `stack-back.env`:
 
-```yaml
+```bash
 # Every 6 hours
-schedule: "0 */6 * * *"
+CRON_SCHEDULE="0 */6 * * *"
 
 # Twice daily (2 AM and 2 PM)
-schedule: "0 2,14 * * *"
+CRON_SCHEDULE="0 2,14 * * *"
 
 # Weekly on Sunday at 3 AM
-schedule: "0 3 * * 0"
+CRON_SCHEDULE="0 3 * * 0"
 
 # Every 4 hours between 8 AM and 8 PM on weekdays
-schedule: "0 8-20/4 * * 1-5"
-```
-
-### Selective Volume Backups
-
-Instead of backing up all volumes:
-
-```yaml
-volumes:
-  # Backup specific volumes only
-  - name: "app_data"
-    compress: true
-    retention:
-      days: 30
-      
-  - name: "user_uploads"
-    compress: true
-    retention:
-      days: 90
-      
-  # Exclude specific volumes
-  - name: "temp_cache"
-    exclude: true
-```
-
-### Database Backup Configuration
-
-Fine-tune database backups:
-
-```yaml
-databases:
-  # Auto-discover with custom settings
-  auto_discover: true
-  retention:
-    days: 30
-    
-  # Or specify databases explicitly
-  explicit:
-    - name: "postgres_app"
-      type: "postgresql"
-      host: "db"
-      port: 5432
-      database: "appdb"
-      username: "${DB_USER}"
-      password: "${DB_PASSWORD}"
-      compress: true
-      retention:
-        days: 90
+CRON_SCHEDULE="0 8-20/4 * * 1-5"
 ```
 
 ### Retention Policies
 
 Configure how long backups are kept:
 
-```yaml
-# Global retention
-retention:
-  days: 30      # Keep for 30 days
-  weeks: 4      # Keep weekly backups for 4 weeks
-  months: 12    # Keep monthly backups for 12 months
+```bash
+# Keep daily backups for 30 days
+RESTIC_KEEP_DAILY=30
 
-# Per-target retention
-volumes:
-  - name: "critical_data"
-    retention:
-      days: 90
-      months: 24
-      
-  - name: "temp_data"
-    retention:
-      days: 7
+# Keep weekly backups for 8 weeks
+RESTIC_KEEP_WEEKLY=8
+
+# Keep monthly backups for 24 months
+RESTIC_KEEP_MONTHLY=24
+
+# Keep yearly backups for 5 years
+RESTIC_KEEP_YEARLY=5
 ```
 
-### Multiple Backup Destinations
+### Selective Backups with Compose Labels
 
-Backup to multiple locations:
+By default with `AUTO_BACKUP_ALL=true`, everything is backed up. Use labels to exclude or include specific volumes:
 
 ```yaml
-destinations:
-  # Primary: Backblaze B2
-  - type: b2
-    bucket: ${B2_BUCKET}
-    key_id: ${B2_KEY_ID}
-    app_key: ${B2_APP_KEY}
-    
-  # Secondary: Local storage
-  - type: local
-    path: /backup/local
-    
-  # Tertiary: S3
-  - type: s3
-    bucket: ${S3_BUCKET}
-    region: us-east-1
-    access_key: ${AWS_ACCESS_KEY}
-    secret_key: ${AWS_SECRET_KEY}
+services:
+  web:
+    image: nginx:alpine
+    labels:
+      # Exclude specific volumes by name
+      - stack-back.volumes.exclude: cache
+    volumes:
+      - web_data:/usr/share/nginx/html      # Backed up
+      - cache:/var/cache/nginx              # Excluded
+
+  db:
+    image: postgres:15
+    labels:
+      # Disable database dump backup
+      - stack-back.postgres: false
+      # Also disable volume backup for this service
+      - stack-back.volumes: false
+    volumes:
+      - db_data:/var/lib/postgresql/data
 ```
 
-## Applying Configuration Changes
+### Include Only Specific Volumes
 
-### Via Ansible (Recommended)
-1. Edit `ansible/roles/stack-back/templates/config.yaml.j2`
-2. Commit changes
-3. Run Ansible:
-   ```bash
-   make configure
-   ```
+```yaml
+services:
+  app:
+    image: myapp
+    labels:
+      - stack-back.volumes: true
+      - stack-back.volumes.include: "uploads,config"
+    volumes:
+      - uploads:/app/uploads      # Backed up
+      - config:/app/config        # Backed up
+      - cache:/app/cache          # Not backed up
+      - temp:/app/temp            # Not backed up
+```
 
-### Manual Method
-1. SSH to server
-2. Edit `/opt/stack-back/config.yaml`
-3. Restart stack-back:
-   ```bash
-   systemctl restart stack-back
-   ```
+### Database Backup Configuration
+
+Enable database backups with labels:
+
+```yaml
+services:
+  postgres:
+    image: postgres:15
+    labels:
+      - stack-back.postgres: true
+    environment:
+      - POSTGRES_USER=appuser
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=appdb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  mysql:
+    image: mysql:8
+    labels:
+      - stack-back.mysql: true
+    environment:
+      - MYSQL_USER=appuser
+      - MYSQL_PASSWORD=${DB_PASSWORD}
+      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
+    volumes:
+      - mysqldata:/var/lib/mysql
+
+  mariadb:
+    image: mariadb:10
+    labels:
+      - stack-back.mariadb: true
+    environment:
+      - MARIADB_USER=appuser
+      - MARIADB_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - mariadbdata:/var/lib/mariadb
+```
+
+**Note:** When database backups are enabled, the database data volume is automatically excluded from volume backups to avoid redundancy.
 
 ## Monitoring Backups
 
 ### Check Backup Status
+
 ```bash
-# View stack-back logs
-journalctl -u stack-back -f
+# View current configuration and what will be backed up
+docker-compose exec backup rcb status
 
-# Check last backup time
-systemctl status stack-back
-
-# List backup files in B2
-# (Use B2 CLI or web interface)
+# Example output:
+# INFO: Status for compose project 'myproject'
+# INFO: Repository: 's3:s3.us-east-1.amazonaws.com/bucket'
+# INFO: Backup currently running?: False
+# INFO: --------------- Detected Config ---------------
+# INFO: service: postgres
+# INFO:  - postgres (is_ready=True)
+# INFO: service: web
+# INFO:  - volume: web_data
 ```
 
-### Verify Backup Success
-```bash
-# Check stack-back logs for errors
-journalctl -u stack-back --since "24 hours ago" | grep -i error
+### View Backup Logs
 
-# Verify backup files exist in destination
-ls -lh /path/to/backups/
+```bash
+# Follow backup logs
+docker-compose logs -f backup
+
+# View recent logs
+docker-compose logs --tail=100 backup
 ```
 
-### Backup Notifications
+### List Snapshots
 
-Add notifications to config:
+```bash
+# List all backup snapshots
+docker-compose exec backup rcb snapshots
 
-```yaml
-notifications:
-  # Email notifications
-  - type: email
-    smtp:
-      host: smtp.gmail.com
-      port: 587
-      username: ${SMTP_USER}
-      password: ${SMTP_PASSWORD}
-    from: "[email protected]"
-    to: "[email protected]"
-    on_failure: true
-    on_success: false  # Only notify on failure
-    
-  # Slack notifications
-  - type: slack
-    webhook_url: ${SLACK_WEBHOOK}
-    on_failure: true
-    on_success: false
+# Or use restic directly
+docker-compose exec backup restic snapshots
+```
+
+### Check Repository
+
+```bash
+# Check repository integrity
+docker-compose exec backup restic check
+
+# With cache for faster checking (reduces read operations)
+# Set in stack-back.env: CHECK_WITH_CACHE=true
+```
+
+## Notifications
+
+### Email Notifications
+
+Add to `stack-back.env`:
+
+```bash
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_HOST_USER=your-email@gmail.com
+EMAIL_HOST_PASSWORD=your-app-password
+EMAIL_SEND_TO=alerts@example.com
+```
+
+### Discord Notifications
+
+Add to `stack-back.env`:
+
+```bash
+DISCORD_WEBHOOK=https://discord.com/api/webhooks/your-webhook-url
+```
+
+### Test Notifications
+
+```bash
+docker-compose exec backup rcb alert
 ```
 
 ## Restoring from Backups
 
-### Restore Volumes
+### List Available Snapshots
+
+```bash
+# List all snapshots
+docker-compose exec backup restic snapshots
+
+# Output shows snapshot IDs and paths:
+# ID        Time                 Host        Tags        Paths
+# --------------------------------------------------------------
+# 4bba301e  2024-02-10 02:00:00  myhost                  /volumes/web/usr/share/nginx/html
+# a3c7d42f  2024-02-10 02:00:00  myhost                  /databases/postgres/appdb.sql
+```
+
+### Restore a Volume
 
 1. **Stop the application**
    ```bash
    docker-compose down
    ```
 
-2. **Download backup from B2**
+2. **Restore using restic**
    ```bash
-   # Use B2 CLI or stack-back restore command
-   stack-back restore volume app_data --date 2024-01-15
+   # Restore latest snapshot of a volume
+   docker-compose run --rm backup restic restore latest \
+     --target /restore \
+     --path /volumes/web/usr/share/nginx/html
+
+   # Or restore specific snapshot by ID
+   docker-compose run --rm backup restic restore 4bba301e \
+     --target /restore
    ```
 
-3. **Extract backup**
+3. **Copy restored data to volume**
    ```bash
-   # Backups are typically tar.gz files
-   tar -xzf app_data_2024-01-15.tar.gz -C /var/lib/docker/volumes/app_data/_data/
+   # The restored data is in /restore, copy to volume location
+   docker run --rm \
+     -v web_data:/data \
+     -v /restore:/restore \
+     alpine cp -a /restore/. /data/
    ```
 
 4. **Restart application**
@@ -273,26 +375,34 @@ notifications:
    docker-compose up -d
    ```
 
-### Restore Databases
+### Restore a Database
 
 1. **Stop the application**
    ```bash
    docker-compose down
    ```
 
-2. **Download database backup**
+2. **Restore database dump**
    ```bash
-   stack-back restore database appdb --date 2024-01-15
+   # List database snapshots
+   docker-compose run --rm backup restic snapshots \
+     --path /databases
+
+   # Restore latest database dump to file
+   docker-compose run --rm backup restic dump latest \
+     /databases/postgres/appdb.sql > appdb_restore.sql
    ```
 
-3. **Restore to database**
+3. **Import to database**
    ```bash
-   # For PostgreSQL
-   docker-compose up -d db
-   docker exec -i db psql -U user appdb < appdb_2024-01-15.sql
-   
+   # Start database only
+   docker-compose up -d postgres
+
+   # Import dump
+   docker-compose exec -T postgres psql -U appuser appdb < appdb_restore.sql
+
    # For MySQL
-   docker exec -i db mysql -u user -p appdb < appdb_2024-01-15.sql
+   docker-compose exec -T mysql mysql -u appuser -p appdb < appdb_restore.sql
    ```
 
 4. **Restart application**
@@ -300,176 +410,187 @@ notifications:
    docker-compose up -d
    ```
 
-### Point-in-Time Recovery
+### Mount Snapshot for Browsing
 
-For critical data, keep more frequent backups:
+```bash
+# Mount a snapshot to browse files
+docker-compose exec backup restic mount /mnt
 
-```yaml
-volumes:
-  - name: "critical_data"
-    schedule: "0 */2 * * *"  # Every 2 hours
-    retention:
-      hours: 48   # Keep hourly backups for 48 hours
-      days: 30    # Keep daily backups for 30 days
-      weeks: 12   # Keep weekly backups for 12 weeks
+# In another terminal, browse the mounted snapshot
+docker-compose exec backup ls /mnt/snapshots/latest/volumes/
 ```
 
 ## Troubleshooting
 
 ### Backups Not Running
-**Check:**
+
+**Check container is running:**
 ```bash
-# Is stack-back service running?
-systemctl status stack-back
+docker-compose ps backup
+```
 
-# Check for errors in logs
-journalctl -u stack-back --since "24 hours ago"
+**Check logs:**
+```bash
+docker-compose logs backup
+```
 
-# Verify cron schedule
-journalctl -u cron --since "24 hours ago" | grep stack-back
+**Verify cron configuration:**
+```bash
+docker-compose exec backup crontab -l
 ```
 
 ### Backup Failures
+
 **Common issues:**
-- Insufficient disk space
-- B2 credentials expired or invalid
+- Insufficient disk space for cache
+- Invalid repository credentials
 - Network connectivity issues
 - Database connection failures
 
-**Solutions:**
+**Check repository access:**
 ```bash
-# Check disk space
-df -h
-
-# Verify B2 credentials
-# Update in Infisical if needed
-
-# Test B2 connectivity
-curl https://api.backblazeb2.com/b2api/v2/b2_authorize_account
-
-# Test database connection
-docker exec db pg_isready  # PostgreSQL
+# Test repository connectivity
+docker-compose exec backup restic snapshots
 ```
 
-### Backup Files Too Large
-**Optimize:**
+**Check database connectivity:**
+```bash
+# Verify database is accessible
+docker-compose exec backup rcb status
+```
+
+### Repository Errors
+
+**Initialize repository if new:**
+```bash
+docker-compose exec backup restic init
+```
+
+**Unlock repository if locked:**
+```bash
+# If backup was interrupted, repository may be locked
+docker-compose exec backup restic unlock
+```
+
+**Repair repository:**
+```bash
+docker-compose exec backup restic rebuild-index
+docker-compose exec backup restic check
+```
+
+### Large Backup Sizes
+
+**Check cache usage:**
+```bash
+# Cache speeds up operations but uses disk space
+docker volume inspect backup_cache
+```
+
+**Prune old snapshots:**
+```bash
+# Manually trigger maintenance
+docker-compose exec backup rcb cleanup
+```
+
+**Exclude unnecessary data:**
+Use labels to exclude cache directories, logs, and temporary files.
+
+## Advanced Configuration
+
+### Exclude Bind Mounts
+
+```bash
+# Only backup docker volumes, not bind mounts
+EXCLUDE_BIND_MOUNTS=true
+```
+
+### Include Project Name in Paths
+
+```bash
+# Useful when backing up multiple projects to same repository
+INCLUDE_PROJECT_NAME=true
+```
+
+### Backup Multiple Compose Projects
+
+```bash
+# Backup all compose projects on the host
+INCLUDE_ALL_COMPOSE_PROJECTS=true
+```
+
+### Custom Cron Command
+
+```bash
+# Run custom commands instead of default backup
+CRON_COMMAND="source /env.sh && rcb backup && rcb snapshots > /proc/1/fd/1"
+```
+
+### Maintenance Schedule
+
+```bash
+# Run maintenance (forget + prune + check) on separate schedule
+# Default: maintenance runs after every backup
+MAINTENANCE_SCHEDULE="0 3 * * 0"  # Weekly on Sunday at 3 AM
+```
+
+### Stop Service During Backup
+
+For services with files at risk of corruption (like SQLite databases):
+
 ```yaml
-volumes:
-  - name: "large_volume"
-    compress: true  # Enable compression
-    compression_level: 9  # Maximum compression
-    
-  # Exclude unnecessary files
-  - name: "app_data"
-    exclude_patterns:
-      - "*.log"
-      - "*.tmp"
-      - "cache/*"
-```
-
-### Restore Fails
-**Check:**
-- Backup file integrity
-- Sufficient disk space for restore
-- Correct permissions
-- Database is accessible
-
-### Missing Backups
-**Verify:**
-```bash
-# Check B2 bucket contents
-# Use B2 web interface or CLI
-
-# Verify stack-back configuration
-cat /opt/stack-back/config.yaml
-
-# Check if backups are being created but not uploaded
-ls -lh /opt/stack-back/temp/
+services:
+  app:
+    image: myapp
+    labels:
+      - stack-back.volumes: true
+      - stack-back.volumes.stop-during-backup: true
+    volumes:
+      - app_data:/data
 ```
 
 ## Best Practices
 
-1. **Test Restores Regularly**
-   - Verify backups can actually be restored
-   - Test restore procedure in dev environment
-   - Document restore process
+1. **Secure Your Encryption Password**
+   - Store `RESTIC_PASSWORD` securely (use Infisical or similar)
+   - NEVER lose this password - backups are unrecoverable without it
 
-2. **Monitor Backup Size**
-   - Watch for unexpected growth
-   - Adjust retention as needed
-   - Clean up old backups periodically
+2. **Test Restores Regularly**
+   - Verify backups are actually restorable
+   - Practice restore procedure in dev environment
+   - Document your restore process
 
-3. **Secure Backup Data**
-   - Encrypt sensitive backups
-   - Restrict access to backup storage
-   - Rotate backup credentials regularly
+3. **Monitor Backup Success**
+   - Set up notifications for backup failures
+   - Regularly check logs and snapshot lists
+   - Verify repository integrity with `restic check`
 
-4. **Multiple Backup Destinations**
-   - Don't rely on single backup location
-   - Consider geographic diversity
-   - Test all backup destinations
+4. **Optimize Performance**
+   - Use persistent cache volume for faster operations
+   - Set `CHECK_WITH_CACHE=true` to reduce read operations
+   - Consider separate maintenance schedule to limit operations
 
-5. **Document Configuration**
-   - Keep notes on custom settings
-   - Document restore procedures
-   - Track backup schedule changes
+5. **3-2-1 Backup Strategy**
+   - Keep 3 copies of data
+   - On 2 different media
+   - 1 copy offsite (cloud storage)
 
-6. **Automated Verification**
-   ```yaml
-   verification:
-     enabled: true
-     schedule: "0 4 * * 0"  # Weekly verification
-     sample_size: 1  # Verify 1 random backup
-   ```
-
-## Advanced Configuration
-
-### Incremental Backups
-```yaml
-volumes:
-  - name: "large_dataset"
-    incremental: true
-    full_backup_schedule: "0 2 * * 0"  # Weekly full backup
-    incremental_schedule: "0 2 * * 1-6"  # Daily incremental
-```
-
-### Pre/Post Backup Hooks
-```yaml
-volumes:
-  - name: "app_data"
-    pre_backup:
-      - docker-compose exec app php artisan down
-    post_backup:
-      - docker-compose exec app php artisan up
-```
-
-### Database-Specific Options
-```yaml
-databases:
-  explicit:
-    - name: "postgres_app"
-      type: postgresql
-      options:
-        dump_format: "custom"  # Custom format for pg_dump
-        parallel_jobs: 4  # Parallel dump
-        
-    - name: "mysql_app"
-      type: mysql
-      options:
-        single_transaction: true
-        quick: true
-```
+6. **Right-Size Retention**
+   - Balance storage costs with recovery needs
+   - More frequent backups for critical data
+   - Longer retention for compliance requirements
 
 ## Resources
 
+- [stack-back GitHub Repository](https://github.com/lawndoc/stack-back)
 - [stack-back Documentation](https://stack-back.readthedocs.io)
+- [restic Documentation](https://restic.readthedocs.io)
 - [Backblaze B2 Documentation](https://www.backblaze.com/b2/docs/)
-- [Backup Best Practices](https://www.backblaze.com/blog/the-3-2-1-backup-strategy/)
 
 ## Next Steps
 
 After configuring backups:
 - Test restore procedure in dev environment
-- Set up backup monitoring and alerts
+- Set up monitoring and alerts
 - Document restore process for your team
+- Schedule regular backup verification
 - Review and adjust retention policies quarterly
